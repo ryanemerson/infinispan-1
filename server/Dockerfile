@@ -1,28 +1,51 @@
 # Use latest jboss/base-jdk:8 image as the base
-FROM jboss/base-jdk:8
+ARG BASE_IMAGE="jboss/base-jdk:8"
+FROM $BASE_IMAGE
 
-# Set the INFINISPAN_SERVER_HOME env variable
-ENV INFINISPAN_SERVER_HOME /opt/jboss/infinispan-server
+# Multi-stag builds
+# https://docs.docker.com/develop/develop-images/multistage-build/#use-multi-stage-builds
+# https://medium.com/@tonistiigi/advanced-multi-stage-build-patterns-6f741b852fae
 
-# Set the INFINISPAN_VERSION env variable
-ENV INFINISPAN_VERSION 9.4.0.Final
+# ARG variables -- Define all parameterised args here - only available during image build
+ARG DISPLAY_NAME="Infinispan Server"
+ARG DISPLAY_VERSION="9.4.0.Final"
+ARG DISTRIBUTION_URL="https://downloads.jboss.org/infinispan/$ARTIFACT_VERSION/infinispan-server-$ARTIFACT_VERSION.zip"
+ARG JBOSS_COMPONENT
+# TODO does this really need to be configurable, could we just use /opt/datagrid everywhere?
+ARG JBOSS_HOME="/opt/jboss/infinispan-server"
+ARG JBOSS_PRODUCT="infinispan"
 
-# Ensure signals are forwarded to the JVM process correctly for graceful shutdown
+# ENV variables -- Define all environment variables here - available at runtime in container
+# TODO put all together an put in alphabetical order
+ENV JBOSS_HOME $JBOSS_HOME
+ENV JBOSS_PRODUCT $JBOSS_PRODUCT
+ENV INFINISPAN_VERSION $DISPLAY_VERSION
+ENV JBOSS_DATAGRID_VERSION $DISPLAY_VERSION
+ENV PRODUCT_VERSION $DISPLAY_VERSION
+
+# Inherited from downstram - ARe these still required?
 ENV LAUNCH_JBOSS_IN_BACKGROUND true
-
-# Server download location
-ENV DISTRIBUTION_URL https://downloads.jboss.org/infinispan/$INFINISPAN_VERSION/infinispan-server-$INFINISPAN_VERSION.zip
+#ENV DEFAULT_ADMIN_USERNAME "jdgadmin"
+#ENV JBOSS_MODULES_SYSTEM_PKGS "org.jboss.logmanager,jdk.nashorn.api"
 
 # Labels
-LABEL name="Infinispan Server" \
-      version="$INFINISPAN_VERSION" \
-      release="$INFINISPAN_VERSION" \
-      architecture="x86_64" \
-      io.k8s.description="Provides a scalable in-memory distributed database designed for fast access to large volumes of data." \
-      io.k8s.display-name="Infinispan Server" \
-      io.openshift.expose-services="8080:http,11222:hotrod" \
-      io.openshift.tags="datagrid,java,jboss" \
-      io.openshift.s2i.scripts-url="image:///usr/local/s2i/bin"
+LABEL architecture="x86_64"
+LABEL com.redhat.component=$JBOSS_COMPONENT
+LABEL com.redhat.deployments-dir=$JBOSS_HOME/standalone/deployments
+LABEL com.redhat.dev-mode="DEBUG:true"
+LABEL com.redhat.dev-mode.port="DEBUG_PORT:8787"
+LABEL io.k8s.description="Provides a scalable in-memory distributed database designed for fast access to large volumes of data."
+LABEL io.k8s.display-name=$DISPLAY_NAME
+LABEL io.openshift.expose-services="8080:http,11222:hotrod"
+LABEL io.openshift.s2i.scripts-url="image:///usr/local/s2i"
+LABEL io.openshift.tags="datagrid,java,jboss"
+LABEL name=$DISPLAY_NAME
+LABEL org.jboss.product=$JBOSS_PRODUCT
+LABEL org.jboss.product.datagrid.version=$DISPLAY_VERSION
+LABEL org.jboss.product.version=$DISPLAY_VERSION
+LABEL org.jboss.deployments-dir=$JBOSS_HOME/standalone/deployments
+LABEL release=$INFINISPAN_VERSION
+LABEL version=$INFINISPAN_VERSION
 
 # Download and extract the Infinispan Server
 USER root
@@ -31,12 +54,13 @@ ENV HOME /opt/jboss/
 
 RUN INFINISPAN_SHA=$(curl $DISTRIBUTION_URL.sha1); curl -o /tmp/server.zip $DISTRIBUTION_URL && sha1sum /tmp/server.zip | grep $INFINISPAN_SHA \
     && unzip -q /tmp/server.zip -d $HOME && mv $HOME/infinispan-server-* $HOME/infinispan-server && rm /tmp/server.zip \ 
-    && chown -R 1000.0 /opt/jboss/infinispan-server/ \
-    && chmod -R g+rw /opt/jboss/infinispan-server/ \
-    && find /opt/jboss/infinispan-server/ -type d -exec chmod g+x {} +
+    && chown -R 1000.0 $JBOSS_HOME \
+    && chmod -R g+rw $JBOSS_HOME \
+    && find $JBOSS_HOME -type d -exec chmod g+x {} +
 
 USER 1000
 
+# TODO rework
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin
 COPY is_healthy.sh /usr/local/bin
@@ -46,5 +70,6 @@ COPY .s2i /usr/local/s2i
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 
+# TODO how much of this is required?
 # Expose Infinispan server  ports 
 EXPOSE 7600 8080 8181 8888 9990 11211 11222 57600
